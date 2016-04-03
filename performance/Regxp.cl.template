@@ -1,0 +1,227 @@
+#pragma OPENCL EXTENSION cl_amd_printf:enable
+
+#define WORK_GROUP_SIZE 64
+#define NUMBER_OF_GROUP 64
+#define OVERLAP 0
+#define BUFFER_ELEMENTS 10000
+#define BitBlock ulong
+#define CARRY_BIT_MASK 0x8000000000000000
+
+/******************Library Functions 64-bit********************/
+#define simd_or(b1, b2) (b1 | b2)
+#define simd_and(b1, b2) (b1 & b2)
+#define simd_xor(b1, b2) (b1 ^ b2)
+#define simd_andc(b1, b2) (b1 & (~b2))
+#define simd_not(b) (~b)
+#define simd_nor(a,b) (simd_not(simd_or(a,b)))
+
+#define simd_himask_2 0xAAAAAAAAAAAAAAAA
+#define simd_himask_4 0xCCCCCCCCCCCCCCCC
+#define simd_himask_8 0xF0F0F0F0F0F0F0F0
+/* Little-endian */
+#define simd_himask_16 0xFF00FF00FF00FF00
+#define simd_himask_32 0xFFFF0000FFFF0000
+
+#define bitblock_has_bit(v) (v!=0)
+
+#define sisd_slli(r, shft) (r<<shft)
+#define sisd_srli(r, shft) (r>>shft)
+
+#define sisd_from_int(n) n
+
+#define simd_const_1(x)\
+  ((x)==0 ? 0 : 0xFFFFFFFFFFFFFFFF)
+
+#define simd_if(cond, then_val, else_val) \
+  simd_or(simd_and(then_val, cond), simd_andc(else_val, cond))
+
+#define simd_pack_16_hh(b, a)\
+(a & 0xFF00000000000000)|((a & 0x0000FF0000000000)<<8)|((a & 0X00000000FF000000)<<16)|((a & 0X000000000000FF00)<<24)|\
+((b & 0xFF00000000000000)>>32)|((b & 0x0000FF0000000000)>>24)|((b & 0X00000000FF000000)>>16)|((b & 0X000000000000FF00)>>8)
+
+#define simd_pack_16_ll(b, a)\
+((a & 0x00FF000000000000)<<8)|((a & 0x000000FF00000000)<<16)|((a & 0X0000000000FF0000)<<24)|((a & 0X00000000000000FF)<<32)|\
+((b & 0x00FF000000000000)>>24)|((b & 0x000000FF00000000)>>16)|((b & 0X0000000000FF0000)>>8)|(b & 0X00000000000000FF)
+
+#define s2p_step(s0, s1, hi_mask, shift, p0, p1)  \
+  do {\
+	BitBlock t0,t1;\
+	t0 = simd_pack_16_hh(s0, s1);\
+	t1 = simd_pack_16_ll(s0, s1);\
+	p0 = simd_if(hi_mask, t0, (t1 >> shift));\
+	p1 = simd_if(hi_mask, (t0 << shift), t1);\
+  } while(0)
+
+#define s2p_bytepack(s0, s1, s2, s3, s4, s5, s6, s7, p0, p1, p2, p3, p4, p5, p6, p7) \
+  do {\
+	BitBlock bit00224466_0,bit00224466_1,bit00224466_2,bit00224466_3;\
+	BitBlock bit11335577_0,bit11335577_1,bit11335577_2,bit11335577_3;\
+	BitBlock bit00004444_0,bit22226666_0,bit00004444_1,bit22226666_1;\
+	BitBlock bit11115555_0,bit33337777_0,bit11115555_1,bit33337777_1;\
+	s2p_step(s0,s1,simd_himask_2,1,bit00224466_0,bit11335577_0);\
+	s2p_step(s2,s3,simd_himask_2,1,bit00224466_1,bit11335577_1);\
+	s2p_step(s4,s5,simd_himask_2,1,bit00224466_2,bit11335577_2);\
+	s2p_step(s6,s7,simd_himask_2,1,bit00224466_3,bit11335577_3);\
+	s2p_step(bit00224466_0,bit00224466_1,simd_himask_4,2,bit00004444_0,bit22226666_0);\
+	s2p_step(bit00224466_2,bit00224466_3,simd_himask_4,2,bit00004444_1,bit22226666_1);\
+	s2p_step(bit11335577_0,bit11335577_1,simd_himask_4,2,bit11115555_0,bit33337777_0);\
+	s2p_step(bit11335577_2,bit11335577_3,simd_himask_4,2,bit11115555_1,bit33337777_1);\
+	s2p_step(bit00004444_0,bit00004444_1,simd_himask_8,4,p0,p4);\
+	s2p_step(bit11115555_0,bit11115555_1,simd_himask_8,4,p1,p5);\
+	s2p_step(bit22226666_0,bit22226666_1,simd_himask_8,4,p2,p6);\
+	s2p_step(bit33337777_0,bit33337777_1,simd_himask_8,4,p3,p7);\
+  } while(0)
+
+inline BitBlock pablo_advance(int idx, BitBlock a, __local BitBlock *carry, BitBlock *group_carry, const int carryno){
+	carry[0] = group_carry[carryno];
+	BitBlock c = a<<1;
+	carry[idx+1] = (a & CARRY_BIT_MASK)>>63;
+	barrier(CLK_LOCAL_MEM_FENCE);
+	group_carry[carryno] = carry[WORK_GROUP_SIZE];
+	c = c | carry[idx];
+	return c;
+}
+
+inline BitBlock pablo_or(int idx, BitBlock a, __local BitBlock *local_carry){
+	local_carry[idx] = a;
+	barrier(CLK_LOCAL_MEM_FENCE);
+	for(int offset=WORK_GROUP_SIZE/2; offset>0; offset=offset>>1){
+		local_carry[idx] = local_carry[idx]|local_carry[idx^offset];
+		barrier(CLK_LOCAL_MEM_FENCE);
+	}
+	return local_carry[0];
+}
+
+inline BitBlock adc(int idx, BitBlock a, BitBlock b, __local BitBlock *carry, __local BitBlock *bubble, BitBlock *group_carry, const int carryno){
+	BitBlock carry_mask;
+	BitBlock bubble_mask;
+
+	BitBlock partial_sum = a+b;
+	BitBlock gen = a&b;
+	BitBlock prop = a^b;
+	carry[idx] = ((gen | (prop & ~partial_sum))&CARRY_BIT_MASK)>>(WORK_GROUP_SIZE-1-idx);
+	bubble[idx] = (partial_sum + 1)? 0:(((BitBlock)1)<<idx);
+	
+	barrier(CLK_LOCAL_MEM_FENCE);
+	for(int offset=WORK_GROUP_SIZE/2; offset>0; offset=offset>>1){
+		carry[idx] = carry[idx]|carry[idx^offset];
+		bubble[idx] = bubble[idx]|bubble[idx^offset];
+		barrier(CLK_LOCAL_MEM_FENCE);
+	}
+	
+	carry_mask = (carry[0]<<1)|group_carry[carryno];
+	bubble_mask = bubble[0];
+	
+	BitBlock s = (carry_mask + bubble_mask) & ~bubble_mask;
+	BitBlock inc = s | (s-carry_mask);
+	BitBlock rslt = partial_sum + ((inc>>idx)&0x1);
+	group_carry[carryno] = (carry[0]|(bubble_mask & inc))>>63;
+	return rslt;
+}
+
+inline BitBlock scanthru(int idx, BitBlock markers, BitBlock charclass, __local BitBlock *carry, __local BitBlock *bubble, BitBlock *group_carry, const int carryno) {
+	return simd_andc(adc(idx, markers, charclass, carry, bubble, group_carry, carryno), charclass);
+}
+
+inline BitBlock scanto(int idx, BitBlock markers, BitBlock charclass, __local BitBlock *carry, __local BitBlock *bubble, BitBlock *group_carry, const int carryno) {
+	return simd_and(adc(idx, markers, simd_not(charclass), carry, bubble, group_carry, carryno), charclass);
+}
+
+inline BitBlock pablo_blk_MatchStar(int idx, BitBlock marker, BitBlock charclass, __local BitBlock *carry, __local BitBlock *bubble, BitBlock *group_carry, const int carryno) {
+	BitBlock sum = adc(idx, simd_and(charclass, marker), charclass, carry, bubble, group_carry, carryno);
+	return simd_or(simd_xor(sum, charclass), marker);
+}
+
+inline void CarryInit(BitBlock * carry, int count){
+    for (int j=0; j < count; j++) 
+         carry[j] = 0;
+}
+
+inline int CarryTest(BitBlock * cq, const int carryno, const int carry_count) {
+  BitBlock c1 = cq[carryno];
+  for (int i = carryno + 1; i < carryno + carry_count; i++) {
+    c1 = c1 | cq[i];
+  }
+  return bitblock_has_bit(c1);
+}
+
+static inline int popcount32(unsigned int x)
+{
+     x -= (x >> 1) & 0x55555555;
+     x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
+     x = (x + (x >> 4)) & 0x0F0F0F0F;
+     x += x >> 8;
+     return (x + (x >> 16)) & 0x3F;
+}
+
+static inline int popcount64(BitBlock x)
+{
+	 x -= (x >> 1) & 0x5555555555555555;
+     x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+     x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0F;
+     x += x >> 8;
+	 x += x >> 16;
+     return (x + (x >> 32)) & 0x7F;    
+}
+
+/**************App Structs***************/
+  struct Basis_bits {
+  BitBlock bit_0;
+  BitBlock bit_1;
+  BitBlock bit_2;
+  BitBlock bit_3;
+  BitBlock bit_4;
+  BitBlock bit_5;
+  BitBlock bit_6;
+  BitBlock bit_7;
+};
+
+  struct Lex {
+{{{@lex_definition}}}
+};
+  struct Output {
+  BitBlock matches;
+};
+
+
+#define classify_bytes_do_block(basis_bits, lex)\
+do {\
+{{{@classify_bytes_do_block}}}
+} while (0)
+  
+#define demo_do_block(idx, lex, output, carry, bubble, group_carry)\
+do {\
+{{{@demo_do_block}}}
+} while (0) 
+
+__kernel
+void RegxpMatch(__global BitBlock *s, 
+		   __global BitBlock *match_pos,
+			__local BitBlock *carry,
+			__local BitBlock *bubble) {
+
+	int lid = get_local_id(0);
+	int gid = get_global_id(0);
+	int group = gid/WORK_GROUP_SIZE;
+	struct Basis_bits basis_bits;
+	struct Lex lex;
+	struct Output output;
+	int match_count = 0;
+	BitBlock regxp_match_carryQ[50];
+	CarryInit(regxp_match_carryQ, 50);
+
+	int buffer_start = (BUFFER_ELEMENTS-OVERLAP)*group+lid;
+	for(int idx = buffer_start; idx < buffer_start + BUFFER_ELEMENTS; idx=idx+WORK_GROUP_SIZE){
+		s2p_bytepack(s[idx*8], s[idx*8+1], s[idx*8+2], s[idx*8+3], s[idx*8+4], s[idx*8+5], s[idx*8+6], s[idx*8+7], 
+		basis_bits.bit_0, basis_bits.bit_1, basis_bits.bit_2, basis_bits.bit_3, 
+		basis_bits.bit_4, basis_bits.bit_5, basis_bits.bit_6, basis_bits.bit_7);
+		
+		classify_bytes_do_block(basis_bits, lex);
+		demo_do_block(lid, lex, output, carry, bubble, regxp_match_carryQ);
+
+		match_count += popcount64(output.matches);
+	}
+	match_pos[gid] = match_count;
+}
+
+	
