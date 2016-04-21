@@ -501,9 +501,9 @@ RE * RE_Parser::parsePropertyExpression() {
             ++mCursor;
         }
         // We have a property-name = value expression
-        return createName(std::move(canonicalize(start, prop_end)), std::move(canonicalize(val_start, mCursor.pos())));
+        return createName(canonicalize(start, prop_end), canonicalize(val_start, mCursor.pos()));
     }
-    return createName(std::move(canonicalize(start, mCursor.pos())));
+    return createName(canonicalize(start, mCursor.pos()));
 }
 
 Name * RE_Parser::parseNamePatternExpression(){
