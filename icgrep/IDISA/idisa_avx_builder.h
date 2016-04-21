@@ -37,6 +37,15 @@ public:
 
     ~IDISA_AVX2_Builder() {};
 };
+
+class IDISA_AVX512_Builder : public IDISA_AVX2_Builder {
+public:
+    
+    IDISA_AVX512_Builder(Module * m, Type * bitBlockType) : IDISA_AVX2_Builder(m, bitBlockType) {
+    }
+
+    ~IDISA_AVX512_Builder() {};
+};
     
 }
 #endif // IDISA_AVX_BUILDER_H
