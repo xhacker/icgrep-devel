@@ -29,7 +29,7 @@
 #include <kernels/casefold_pipeline.h>
 
 // Dynamic processor detection
-#define ISPC_LLVM_VERSION ISPC_LLVM_3_6
+#define ISPC_LLVM_VERSION ISPC_LLVM_3_8
 #include <util/ispc.cpp>
 
 #include <utf_encoding.h>

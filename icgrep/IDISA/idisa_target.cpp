@@ -10,7 +10,7 @@
 #include <IDISA/idisa_i64_builder.h>
 
 // Dynamic processor detection
-#define ISPC_LLVM_VERSION ISPC_LLVM_3_6
+#define ISPC_LLVM_VERSION ISPC_LLVM_3_8
 #include <util/ispc.cpp>
 
 static cl::OptionCategory dCodeGenOptions("Code Generation Options", "These options control code generation.");

@@ -22,7 +22,7 @@
 #include <llvm/Support/raw_ostream.h>
 
 // Dynamic processor detection
-#define ISPC_LLVM_VERSION ISPC_LLVM_3_6
+#define ISPC_LLVM_VERSION ISPC_LLVM_3_8
 #include <util/ispc.cpp>
 
 #include <re/re_cc.h>

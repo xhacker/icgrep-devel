@@ -1,5 +1,5 @@
 /*
-  Copyright (c) 2010-2015, Intel Corporation
+  Copyright (c) 2010-2016, Intel Corporation
   All rights reserved.
 
   Redistribution and use in source and binary forms, with or without
@@ -168,7 +168,7 @@ lGetSystemISA() {
             (info2[1] & (1 << 28)) != 0 && // AVX512 CDI
             (info2[1] & (1 << 30)) != 0 && // AVX512 BW
             (info2[1] & (1 << 31)) != 0) { // AVX512 VL
-            return "skx";
+            return "avx512skx-i32x16";
         }
         else if ((info2[1] & (1 << 26)) != 0 && // AVX512 PF
                  (info2[1] & (1 << 27)) != 0 && // AVX512 ER
@@ -242,8 +242,22 @@ typedef enum {
 #endif
 
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_7 // LLVM 3.7+
-    // KNL. Supports AVX512.
+    // Knights Landing - Xeon Phi.
+    // Supports AVX-512F: All the key AVX-512 features: masking, broadcast... ;
+    //          AVX-512CDI: Conflict Detection;
+    //          AVX-512ERI & PRI: 28-bit precision RCP, RSQRT and EXP transcendentals,
+    //                            new prefetch instructions.
     CPU_KNL,
+#endif
+
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+    // Skylake Xeon.
+    // Supports AVX-512F: All the key AVX-512 features: masking, broadcast... ;
+    //          AVX-512CDI: Conflict Detection;
+    //          AVX-512VL: Vector Length Orthogonality;
+    //          AVX-512DQ: New HPC ISA (vs AVX512F);
+    //          AVX-512BW: Byte and Word Support.
+    CPU_SKX,
 #endif
 
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_4 // LLVM 3.4+
@@ -330,6 +344,10 @@ public:
          names[CPU_KNL].push_back("knl");
 #endif
 
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+         names[CPU_SKX].push_back("skx");
+#endif
+
 #ifdef ISPC_ARM_ENABLED
         names[CPU_CortexA15].push_back("cortex-a15");
 
@@ -351,6 +369,13 @@ public:
 
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_7 // LLVM 3.7+
         compat[CPU_KNL]         = Set(CPU_KNL, CPU_Generic, CPU_Bonnell, CPU_Penryn,
+                                      CPU_Core2, CPU_Nehalem, CPU_Silvermont,
+                                      CPU_SandyBridge, CPU_IvyBridge,
+                                      CPU_Haswell, CPU_Broadwell, CPU_None);
+#endif
+
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+        compat[CPU_SKX]         = Set(CPU_SKX, CPU_Bonnell, CPU_Penryn,
                                       CPU_Core2, CPU_Nehalem, CPU_Silvermont,
                                       CPU_SandyBridge, CPU_IvyBridge,
                                       CPU_Haswell, CPU_Broadwell, CPU_None);
@@ -439,9 +464,9 @@ public:
 
 
 Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, bool printTarget, std::string genericAsSmth) :
-    m_target(nullptr),
-    m_targetMachine(nullptr),
-    m_dataLayout(nullptr),
+    m_target(NULL),
+    m_targetMachine(NULL),
+    m_dataLayout(NULL),
     m_valid(false),
     m_isa(SSE2),
     m_treatGenericAsSmth(genericAsSmth),
@@ -450,7 +475,7 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
     m_cpu(""),
     m_attributes(""),
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_3 
-    m_tf_attributes(nullptr),
+    m_tf_attributes(NULL),
 #endif
     m_nativeVectorWidth(-1),
     m_nativeVectorAlignment(-1),
@@ -481,7 +506,7 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
         }
     }
 
-    if (isa == nullptr) {
+    if (isa == NULL) {
         // If a CPU was specified explicitly, try to pick the best
         // possible ISA based on that.
         switch (CPUID) {
@@ -513,6 +538,12 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_7 // LLVM 3.7+
             case CPU_KNL:
                 isa = "avx512knl-i32x16";
+                break;
+#endif
+
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+            case CPU_SKX:
+                isa = "avx512skx-i32x16";
                 break;
 #endif
 
@@ -554,7 +585,7 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
         isa = lGetSystemISA();
     }
 
-    if (arch == nullptr) {
+    if (arch == NULL) {
 #ifdef ISPC_ARM_ENABLED
         if (!strncmp(isa, "neon", 4))
             arch = "arm";
@@ -588,7 +619,7 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
             break;
         }
     }
-    if (this->m_target == nullptr) {
+    if (this->m_target == NULL) {
         fprintf(stderr, "Invalid architecture \"%s\"\nOptions: ", arch);
         llvm::TargetRegistry::iterator iter;
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_7 // LLVM 3.7+
@@ -918,7 +949,26 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
         CPUfromISA = CPU_KNL;
     }
 #endif
-
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+    else if (!strcasecmp(isa, "avx512skx-i32x16")) {
+        this->m_isa = Target::SKX_AVX512;
+        this->m_nativeVectorWidth = 16;
+        this->m_nativeVectorAlignment = 64;
+        // ?? this->m_dataTypeWidth = 32;
+        this->m_vectorWidth = 16;
+        this->m_maskingIsFree = true;
+        this->m_maskBitCount = 1;
+        this->m_hasHalf = true;
+        this->m_hasRand = true;
+        this->m_hasGather = this->m_hasScatter = true;
+        this->m_hasTranscendentals = false;
+        // For MIC it is set to true due to performance reasons. The option should be tested.
+        this->m_hasTrigonometry = false;
+        this->m_hasRsqrtd = this->m_hasRcpd = false;
+        this->m_hasVecPrefetch = false;
+        CPUfromISA = CPU_SKX;
+    }
+#endif
 #ifdef ISPC_ARM_ENABLED
     else if (!strcasecmp(isa, "neon-i8x16")) {
         this->m_isa = Target::NEON8;
@@ -984,7 +1034,7 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
 
     if (CPUID == CPU_None) {
 #ifndef ISPC_ARM_ENABLED
-        if (isa == nullptr) {
+        if (isa == NULL) {
 #endif
             std::string hostCPU = llvm::sys::getHostCPUName();
             if (hostCPU.size() > 0)
@@ -1028,6 +1078,8 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
         if (g->opt.disableFMA == false)
             options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
 #if ISPC_LLVM_VERSION <= ISPC_LLVM_3_6
+        if (g->NoOmitFramePointer)
+            options.NoFramePointerElim = true;
 #ifdef ISPC_IS_WINDOWS
         if (strcmp("x86", arch) == 0) {
             // Workaround for issue #503 (LLVM issue 14646).
@@ -1039,7 +1091,7 @@ Target::Target(const char *arch, const char *cpu, const char *isa, bool pic, boo
         m_targetMachine =
             m_target->createTargetMachine(triple, m_cpu, featuresString, options,
                     relocModel);
-        Assert(m_targetMachine != nullptr);
+        Assert(m_targetMachine != NULL);
 
 #if ISPC_LLVM_VERSION <= ISPC_LLVM_3_6
         m_targetMachine->setAsmVerbosityDefault(true);
@@ -1146,6 +1198,9 @@ Target::SupportedTargets() {
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_7 // LLVM 3.7+
         "avx512knl-i32x16, "
 #endif
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+        "avx512skx-i32x16, "
+#endif
         "generic-x1, generic-x4, generic-x8, generic-x16, "
         "generic-x32, generic-x64, *-generic-x16, "
 #ifdef ISPC_ARM_ENABLED
@@ -1218,10 +1273,10 @@ Target::ISAToString(ISA isa) {
         return "avx2";
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_3_7 // LLVM 3.7+
     case Target::KNL_AVX512:
-        return "avx512knl-i32x16";
+        return "avx512knl";
 #endif
-    case Target::SKX:
-        return "skx";
+    case Target::SKX_AVX512:
+        return "avx512skx";
     case Target::GENERIC:
         return "generic";
 #ifdef ISPC_NVPTX_ENABLED
@@ -1268,8 +1323,10 @@ Target::ISAToTargetString(ISA isa) {
     case Target::KNL_AVX512:
         return "avx512knl-i32x16";
 #endif
-    case Target::SKX:
-        return "avx2";
+#if ISPC_LLVM_VERSION >= ISPC_LLVM_3_8 // LLVM 3.8+
+    case Target::SKX_AVX512:
+        return "avx512skx-i32x16";
+#endif
     case Target::GENERIC:
         return "generic-4";
 #ifdef ISPC_NVPTX_ENABLED
@@ -1302,17 +1359,17 @@ lGenericTypeLayoutIndeterminate(llvm::Type *type) {
 
     llvm::ArrayType *at =
         llvm::dyn_cast<llvm::ArrayType>(type);
-    if (at != nullptr)
+    if (at != NULL)
         return lGenericTypeLayoutIndeterminate(at->getElementType());
 
     llvm::PointerType *pt =
         llvm::dyn_cast<llvm::PointerType>(type);
-    if (pt != nullptr)
+    if (pt != NULL)
         return false;
 
     llvm::StructType *st =
         llvm::dyn_cast<llvm::StructType>(type);
-    if (st != nullptr) {
+    if (st != NULL) {
         for (int i = 0; i < (int)st->getNumElements(); ++i)
             if (lGenericTypeLayoutIndeterminate(st->getElementType(i)))
                 return true;
@@ -1388,13 +1445,13 @@ Target::StructOffset(llvm::Type *type, int element,
 
     llvm::StructType *structType =
         llvm::dyn_cast<llvm::StructType>(type);
-    if (structType == nullptr || structType->isSized() == false) {
+    if (structType == NULL || structType->isSized() == false) {
         Assert(m->errorCount > 0);
-        return nullptr;
+        return NULL;
     }
 
     const llvm::StructLayout *sl = getDataLayout()->getStructLayout(structType);
-    Assert(sl != nullptr);
+    Assert(sl != NULL);
 
     uint64_t offset = sl->getElementOffset(element);
     if (m_is32Bit || g->opt.force32BitAddressing)
@@ -1446,6 +1503,7 @@ Globals::Globals() {
     runCPP = true;
     debugPrint = false;
     printTarget = false;
+    NoOmitFramePointer = false;
     debugIR = -1;
     disableWarnings = false;
     warningsAsErrors = false;
@@ -1464,7 +1522,7 @@ Globals::Globals() {
 #ifdef ISPC_IS_WINDOWS
     _getcwd(currentDirectory, sizeof(currentDirectory));
 #else
-    if (getcwd(currentDirectory, sizeof(currentDirectory)) == nullptr)
+    if (getcwd(currentDirectory, sizeof(currentDirectory)) == NULL)
         FATAL("Current directory path too long!");
 #endif
     forceAlignment = -1;
@@ -1476,8 +1534,8 @@ Globals::Globals() {
 
 SourcePos::SourcePos(const char *n, int fl, int fc, int ll, int lc) {
     name = n;
-    if (name == nullptr) {
-        if (m != nullptr)
+    if (name == NULL) {
+        if (m != NULL)
             name = m->module->getModuleIdentifier().c_str();
         else
             name = "(unknown)";
