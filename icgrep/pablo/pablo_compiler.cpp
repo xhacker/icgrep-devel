@@ -16,7 +16,6 @@
 #include <IDISA/idisa_builder.h>
 #include <IDISA/idisa_avx_builder.h>
 #include <llvm/Pass.h>
-#include <llvm/PassManager.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Analysis/Passes.h>
 #include <llvm/IR/BasicBlock.h>
@@ -29,6 +28,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/PassManager.h>
 #include <llvm/Support/FormattedStream.h>
 #include <llvm/Support/MathExtras.h>
 #include <llvm/Support/Casting.h>

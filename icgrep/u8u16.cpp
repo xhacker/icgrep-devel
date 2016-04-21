@@ -350,8 +350,7 @@ void u8u16(u8u16FunctionType fn_ptr, const std::string & fileName) {
 
 
 int main(int argc, char *argv[]) {
-    StringMap<cl::Option*> Map;
-    cl::getRegisteredOptions(Map);
+    StringMap<cl::Option *> &Map = cl::getRegisteredOptions();
     Map["time-passes"]->setHiddenFlag(cl::Hidden);
     Map["disable-spill-fusing"]->setHiddenFlag(cl::Hidden);
     Map["enable-misched"]->setHiddenFlag(cl::Hidden);
