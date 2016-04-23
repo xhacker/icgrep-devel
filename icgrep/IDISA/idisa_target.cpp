@@ -16,11 +16,11 @@
 static cl::OptionCategory dCodeGenOptions("Code Generation Options", "These options control code generation.");
 
 static cl::opt<int> BlockSize("BlockSize", cl::init(0), cl::desc("specify a block size (defaults to widest SIMD register width in bits)."), cl::cat(dCodeGenOptions));
+static cl::opt<bool> ForceAVX2("ForceAVX2", cl::init(0), cl::desc("force icgrep to use the AVX2 builder."), cl::cat(dCodeGenOptions));
 static cl::opt<bool> ForceAVX512("ForceAVX512", cl::init(0), cl::desc("force icgrep to use the AVX512 builder."), cl::cat(dCodeGenOptions));
 
-
 IDISA::IDISA_Builder * GetIDISA_Builder(Module * mod) {
-    bool hasAVX2 = (strncmp(lGetSystemISA(), "avx2", 4) == 0);
+    bool hasAVX2 = (strncmp(lGetSystemISA(), "avx2", 4) == 0) || ForceAVX2;
     bool hasAVX512 = (strncmp(lGetSystemISA(), "avx512", 6) == 0) || ForceAVX512;
 
     unsigned theBlockSize = BlockSize;  // from command line
