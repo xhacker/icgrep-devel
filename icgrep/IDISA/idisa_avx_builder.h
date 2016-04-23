@@ -15,7 +15,7 @@ namespace IDISA {
 
 class IDISA_AVX_Builder : public IDISA_SSE_Builder {
 public:
-    
+
     IDISA_AVX_Builder(Module * m, Type * bitBlockType) : IDISA_SSE_Builder(m, bitBlockType) {
     }
     Value * hsimd_signmask(unsigned fw, Value * a) override;
@@ -25,7 +25,7 @@ public:
 
 class IDISA_AVX2_Builder : public IDISA_AVX_Builder {
 public:
-    
+
     IDISA_AVX2_Builder(Module * m, Type * bitBlockType) : IDISA_AVX_Builder(m, bitBlockType) {
     }
     Value * hsimd_packh(unsigned fw, Value * a, Value * b) override;
@@ -40,12 +40,12 @@ public:
 
 class IDISA_AVX512_Builder : public IDISA_AVX2_Builder {
 public:
-    
+
     IDISA_AVX512_Builder(Module * m, Type * bitBlockType) : IDISA_AVX2_Builder(m, bitBlockType) {
     }
-
+    Value * hsimd_signmask(unsigned fw, Value * a) override;
     ~IDISA_AVX512_Builder() {};
 };
-    
+
 }
 #endif // IDISA_AVX_BUILDER_H

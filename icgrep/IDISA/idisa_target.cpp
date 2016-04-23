@@ -22,14 +22,14 @@ static cl::opt<bool> ForceAVX512("ForceAVX512", cl::init(0), cl::desc("force icg
 IDISA::IDISA_Builder * GetIDISA_Builder(Module * mod) {
     bool hasAVX2 = (strncmp(lGetSystemISA(), "avx2", 4) == 0);
     bool hasAVX512 = (strncmp(lGetSystemISA(), "avx512", 6) == 0) || ForceAVX512;
-    
+
     unsigned theBlockSize = BlockSize;  // from command line
-    
+
     if (theBlockSize == 0) {  // No BlockSize override: use processor SIMD width
         theBlockSize = hasAVX512 ? 512 : (hasAVX2 ? 256 : 128);
     }
     Type * bitBlockType = VectorType::get(IntegerType::get(getGlobalContext(), 64), theBlockSize/64);
-    
+
     int blockSize = bitBlockType->isIntegerTy() ? cast<IntegerType>(bitBlockType)->getIntegerBitWidth() : cast<VectorType>(bitBlockType)->getBitWidth();
     if (blockSize >= 256) {
         if (hasAVX512) {

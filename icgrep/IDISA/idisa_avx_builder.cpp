@@ -49,7 +49,7 @@ Value * IDISA_AVX_Builder::hsimd_signmask(unsigned fw, Value * a) {
     // Otherwise use default SSE logic.
     return IDISA_SSE_Builder::hsimd_signmask(fw, a);
 }
-    
+
 Value * IDISA_AVX2_Builder::hsimd_packh(unsigned fw, Value * a, Value * b) {
     unsigned field_count = 2 * mBitBlockWidth/fw;
     Value * aVec = fwCast(fw/2, a);
@@ -101,7 +101,7 @@ Value * IDISA_AVX2_Builder::hsimd_packl(unsigned fw, Value * a, Value * b) {
     // Otherwise use default SSE logic.
     return IDISA_SSE_Builder::hsimd_packl(fw, a, b);
 }
-    
+
 Value * IDISA_AVX2_Builder::esimd_mergeh(unsigned fw, Value * a, Value * b) {
     if ((fw == 128) && (mBitBlockWidth == 256)) {
         Value * vperm2i128func = Intrinsic::getDeclaration(mMod, Intrinsic::x86_avx2_vperm2i128);
@@ -143,5 +143,17 @@ Value * IDISA_AVX2_Builder::hsimd_packh_in_lanes(unsigned lanes, unsigned fw, Va
     // Otherwise use default SSE logic.
     return IDISA_SSE_Builder::hsimd_packh_in_lanes(lanes, fw, a, b);
 }
-    
+
+Value * IDISA_AVX512_Builder::hsimd_signmask(unsigned fw, Value * a) {
+    if ((fw == 64) && (mBitBlockWidth == 512)) {
+        Value * signmask = Intrinsic::getDeclaration(mMod, Intrinsic::x86_avx512_cvtq2mask_512);
+        Value * aVec = fwCast(fw, a);
+        Value * mask = CreateCall(signmask, {aVec});
+        Value * maskAsi32 = CreateZExt(mask, IntegerType::get(getContext(), 32));
+        return maskAsi32;
+    }
+    // Otherwise use default AVX logic.
+    return IDISA_AVX_Builder::hsimd_signmask(fw, a);
+}
+
 }
